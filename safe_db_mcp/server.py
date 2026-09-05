@@ -13,14 +13,13 @@ protocol, not by an instruction the client is asked to follow.
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from .engine import ProposalError, SafeDatabase, SqlRejected
+from .engine import BackendError, ProposalError, SafeDatabase, SqlRejected
 
 SERVER_NAME = "safe-database"
 
@@ -104,8 +103,8 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
             return _json(database.run_query(sql))
         except SqlRejected as error:
             raise ToolError(f"Rejected: {error}") from error
-        except sqlite3.Error as error:
-            raise ToolError(f"SQLite refused the query: {error}") from error
+        except BackendError as error:
+            raise ToolError(str(error)) from error
 
     @mcp.tool()
     def propose_change(sql: str) -> str:
@@ -126,8 +125,8 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
             return _json(database.propose_change(sql))
         except SqlRejected as error:
             raise ToolError(f"Rejected: {error}") from error
-        except sqlite3.Error as error:
-            raise ToolError(f"SQLite refused the change, nothing was written: {error}") from error
+        except BackendError as error:
+            raise ToolError(str(error)) from error
 
     @mcp.tool()
     def confirm_change(change_id: str) -> str:
@@ -146,8 +145,8 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
             raise ToolError(f"Refused: {error}") from error
         except SqlRejected as error:
             raise ToolError(f"Rejected on re-validation: {error}") from error
-        except sqlite3.Error as error:
-            raise ToolError(f"SQLite refused the change, nothing was written: {error}") from error
+        except BackendError as error:
+            raise ToolError(str(error)) from error
 
     @mcp.tool()
     def list_pending_changes() -> str:

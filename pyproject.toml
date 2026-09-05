@@ -20,6 +20,10 @@ classifiers = [
 ]
 dependencies = ["mcp>=2.1.1", "sqlparse>=0.5.0"]
 
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2"]
+aws = ["boto3>=1.35"]
+
 [project.scripts]
 safe-db-mcp = "safe_db_mcp.server:main"
 
@@ -28,10 +32,10 @@ Homepage = "https://github.com/Hamzah-Muhammad/SafeDataBaseMCP"
 Source = "https://github.com/Hamzah-Muhammad/SafeDataBaseMCP"
 
 [tool.setuptools]
-packages = ["safe_db_mcp"]
+packages = ["safe_db_mcp", "safe_db_mcp.backends", "safe_db_mcp.aws"]
 
 [tool.setuptools.package-data]
-safe_db_mcp = ["schema.sql"]
+safe_db_mcp = ["schema.sql", "schema_postgres.sql"]
 
 [tool.ruff]
 line-length = 100
@@ -50,3 +54,6 @@ target-version = ["py311"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+markers = [
+    "postgres: needs a live Postgres, selected by SAFEDB_TEST_PG_DSN",
+]

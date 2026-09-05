@@ -13,12 +13,20 @@ Two grammars are enforced, not one:
 * the *write* grammar - exactly one ``INSERT``, ``UPDATE`` or ``DELETE``
   against a known table, and ``UPDATE``/``DELETE`` must carry a ``WHERE``.
 
-Everything else is refused: DDL, ``PRAGMA``, ``ATTACH``, transaction control,
-stacked statements, comments, and any reference to SQLite internals.
+Everything else is refused: DDL, ``PRAGMA``, ``ATTACH``, ``COPY``, ``DO``,
+transaction control, stacked statements, comments, and any reference to engine
+internals.
+
+The denylists are the union of what is dangerous in SQLite and in Postgres,
+applied on both backends rather than switched by dialect. A SQLite user has no
+reason to write ``COPY ... TO PROGRAM`` and a Postgres user has none to write
+``ATTACH``, so refusing both everywhere costs nothing and removes a whole class
+of bug where the wrong dialect gets detected and the wrong rules get applied.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -61,6 +69,38 @@ FORBIDDEN_KEYWORDS = frozenset(
         "TRIGGER",
         "TRUNCATE",
         "VACUUM",
+        # Postgres. COPY is the sharpest of these: `COPY ... TO PROGRAM` runs a
+        # shell command as the database server user, and `COPY ... FROM` reads
+        # server-side files. DO executes an anonymous procedural block, which is
+        # arbitrary code by another name.
+        "COPY",
+        "DO",
+    }
+)
+
+#: Statement-level commands, refused only when they lead the statement.
+#: ``SET`` is the reason this list exists separately: every ``UPDATE`` contains
+#: the word, so denying it anywhere would reject the write path's own grammar.
+FORBIDDEN_LEADING_KEYWORDS = frozenset(
+    {
+        "CALL",
+        "CLUSTER",
+        "DEALLOCATE",
+        "DISCARD",
+        "EXECUTE",
+        "IMPORT",
+        "LISTEN",
+        "LOAD",
+        "LOCK",
+        "MOVE",
+        "NOTIFY",
+        "PREPARE",
+        "REASSIGN",
+        "REFRESH",
+        "RESET",
+        "SET",
+        "SHOW",
+        "UNLISTEN",
     }
 )
 
@@ -75,11 +115,41 @@ FORBIDDEN_NAMES = frozenset(
         "fts3_tokenizer",
         "sqlite_dbpage",
         "sqlite_compileoption_used",
+        # Postgres server-side file and network access, and the sleep function
+        # that turns a read tool into a denial of service.
+        "pg_read_file",
+        "pg_read_binary_file",
+        "pg_ls_dir",
+        "pg_stat_file",
+        "pg_file_write",
+        "pg_file_unlink",
+        "pg_logdir_ls",
+        "pg_sleep",
+        "pg_sleep_for",
+        "pg_terminate_backend",
+        "pg_cancel_backend",
+        "pg_reload_conf",
+        "pg_read_server_files",
+        "dblink",
+        "dblink_exec",
+        "dblink_connect",
+        "lo_import",
+        "lo_export",
     }
 )
 
-#: Identifier prefixes that belong to SQLite itself and are never addressable.
-RESERVED_TABLE_PREFIX = "sqlite_"
+#: Identifier prefixes that belong to the engine itself and are never
+#: addressable: SQLite internal tables, and the Postgres catalog and
+#: information schema.
+RESERVED_TABLE_PREFIXES = ("sqlite_", "pg_")
+
+#: Schema names that are never addressable. Checked exactly rather than as a
+#: prefix, because sqlparse hands back the schema and the table as separate
+#: name tokens either side of the dot.
+RESERVED_SCHEMA_NAMES = frozenset({"information_schema", "pg_catalog", "pg_toast"})
+
+#: Kept as the old single-prefix name for anything importing it directly.
+RESERVED_TABLE_PREFIX = RESERVED_TABLE_PREFIXES[0]
 
 #: DML keywords that must not appear on the read path, even nested in a CTE.
 DML_KEYWORDS = frozenset({"INSERT", "UPDATE", "DELETE", "UPSERT", "MERGE"})
@@ -142,6 +212,11 @@ def _check_shape(sql: str) -> Statement:
     if "--" in stripped or "/*" in stripped:
         _reject("SQL comments are not allowed. Send the statement without comments.")
 
+    # Dollar quoting is how a Postgres procedural body gets past a SQL parser.
+    # Nothing in the allowed grammar needs it.
+    if "$$" in stripped or re.search(r"\$[A-Za-z_][A-Za-z0-9_]*\$", stripped):
+        _reject("Dollar-quoted strings are not allowed. Send a plain SQL statement.")
+
     statements = [s for s in sqlparse.split(stripped) if s.strip()]
     if len(statements) > 1:
         _reject(
@@ -160,7 +235,17 @@ def _check_shape(sql: str) -> Statement:
 
 def _check_forbidden(statement: Statement) -> None:
     """Refuse any statement containing a forbidden keyword, name or table."""
-    for token in statement.flatten():
+    tokens = [token for token in statement.flatten() if not token.is_whitespace]
+
+    if tokens:
+        leading = tokens[0].value.upper().strip('"[]`')
+        if leading in FORBIDDEN_LEADING_KEYWORDS:
+            _reject(
+                f"'{leading}' is a session or server command, not a query. "
+                "This server refuses it."
+            )
+
+    for token in tokens:
         value = token.value
         upper = value.upper()
 
@@ -174,8 +259,8 @@ def _check_forbidden(statement: Statement) -> None:
             lowered = value.strip('"[]`').lower()
             if lowered in FORBIDDEN_NAMES:
                 _reject(f"'{lowered}' is not callable through this server.")
-            if lowered.startswith(RESERVED_TABLE_PREFIX):
-                _reject(f"'{lowered}' is SQLite internal state and is not addressable.")
+            if lowered.startswith(RESERVED_TABLE_PREFIXES) or lowered in RESERVED_SCHEMA_NAMES:
+                _reject(f"'{lowered}' is database engine internal state and is not addressable.")
             # sqlparse groups some statements (PRAGMA above all) as a bare
             # identifier rather than a keyword, so re-check names against the
             # keyword denylist instead of trusting the token type.

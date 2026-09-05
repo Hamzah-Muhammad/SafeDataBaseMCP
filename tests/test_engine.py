@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from safe_db_mcp.backends.base import BackendError
 from safe_db_mcp.database import read_connection
 from safe_db_mcp.engine import SafeDatabase
 from safe_db_mcp.proposals import ProposalError
@@ -129,7 +130,9 @@ class TestProposeDoesNotCommit:
 
     def test_a_constraint_violation_rolls_back_and_raises(self, database: SafeDatabase) -> None:
         before = row_count(database.path, "members")
-        with pytest.raises(sqlite3.IntegrityError):
+        # The driver's own IntegrityError is wrapped, so a caller does not have to
+        # catch both sqlite3 and psycopg exception hierarchies.
+        with pytest.raises(BackendError, match="UNIQUE constraint"):
             database.propose_change(
                 "INSERT INTO members (full_name, email, joined_on) "
                 "VALUES ('Copy', 'amara.osei@example.com', '2026-01-01')"
