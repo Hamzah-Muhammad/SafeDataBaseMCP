@@ -7,7 +7,7 @@
 [![Backends](https://img.shields.io/badge/backends-SQLite%20%7C%20Postgres%20%7C%20RDS-336791.svg)](#running-it-against-postgres-and-aws)
 [![No LLM](https://img.shields.io/badge/LLM-none%20required-brightgreen.svg)](#no-api-key-anywhere)
 
-**An MCP server that gives an agent a database, and takes away the ability to wreck it.**
+**An [MCP](https://modelcontextprotocol.io) (Model Context Protocol) server that gives an agent a database, and takes away the ability to wreck it.**
 
 Reads answer immediately. Writes cannot happen in one step: the agent sends an `INSERT`/`UPDATE`/`DELETE` to `propose_change`, the server runs it inside a transaction to compute a real preview, rolls it back, and hands back a single-use `change_id`. Nothing reaches disk until `confirm_change` is called with that id. There is no tool that writes without one.
 
