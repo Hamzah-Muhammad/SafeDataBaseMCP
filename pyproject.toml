@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "safe-db-mcp"
+version = "1.0.0"
+description = "An MCP server that puts a database behind five validated tools, with a propose/confirm gate on every write"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Hamzah Muhammad" }]
+keywords = ["mcp", "model-context-protocol", "sqlite", "claude", "database", "guardrails"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+]
+dependencies = ["mcp>=2.1.1", "sqlparse>=0.5.0"]
+
+[project.scripts]
+safe-db-mcp = "safe_db_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/Hamzah-Muhammad/SafeDataBaseMCP"
+Source = "https://github.com/Hamzah-Muhammad/SafeDataBaseMCP"
+
+[tool.setuptools]
+packages = ["safe_db_mcp"]
+
+[tool.setuptools.package-data]
+safe_db_mcp = ["schema.sql"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["safe_db_mcp"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"

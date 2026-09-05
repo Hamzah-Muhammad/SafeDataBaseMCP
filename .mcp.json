@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "safe-database": {
+      "command": "python",
+      "args": ["-m", "safe_db_mcp"],
+      "env": {
+        "SAFEDB_DATABASE_PATH": "data/library.db",
+        "SAFEDB_PROPOSAL_TTL_SECONDS": "300"
+      }
+    }
+  }
+}
