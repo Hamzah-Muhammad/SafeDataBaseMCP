@@ -1,15 +1,15 @@
 # SafeDataBaseMCP
 
 [![CI](https://github.com/Hamzah-Muhammad/SafeDataBaseMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/Hamzah-Muhammad/SafeDataBaseMCP/actions/workflows/ci.yml)
+[![Backends: SQLite, Postgres, AWS RDS](https://img.shields.io/badge/backends-SQLite%20%7C%20Postgres%20%7C%20AWS%20RDS-336791.svg)](#running-it-against-postgres-and-aws)
+[![MCP](https://img.shields.io/badge/MCP-stdio-6E56CF.svg)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
-[![MCP](https://img.shields.io/badge/MCP-stdio-6E56CF.svg)](https://modelcontextprotocol.io)
-[![Backends](https://img.shields.io/badge/backends-SQLite%20%7C%20Postgres%20%7C%20RDS-336791.svg)](#running-it-against-postgres-and-aws)
 [![No LLM](https://img.shields.io/badge/LLM-none%20required-brightgreen.svg)](#no-api-key-anywhere)
 
-**An MCP server that gives an agent a database, and takes away the ability to wreck it.**
+**An [MCP](https://modelcontextprotocol.io) (Model Context Protocol) server: guardrails on real database infrastructure.** Give an agent read/write access to **Postgres on AWS RDS**, and take away its ability to wreck the data.
 
-Reads answer immediately. Writes cannot happen in one step: the agent sends an `INSERT`/`UPDATE`/`DELETE` to `propose_change`, the server runs it inside a transaction to compute a real preview, rolls it back, and hands back a single-use `change_id`. Nothing reaches disk until `confirm_change` is called with that id. There is no tool that writes without one.
+Reads answer immediately. Writes cannot happen in one step: the agent sends an `INSERT`/`UPDATE`/`DELETE` to `propose_change`, the server runs it inside a transaction to compute a real preview, rolls it back, and hands back a single-use `change_id`. Nothing reaches disk until `confirm_change` is called with that id. There is no tool that writes without one. Against RDS, the connection itself is guarded the same way: no stored password, just a 15-minute IAM token minted per session - see [Running it against Postgres and AWS](#running-it-against-postgres-and-aws).
 
 ```
 list_tables      ---> answers immediately (read-only connection)
