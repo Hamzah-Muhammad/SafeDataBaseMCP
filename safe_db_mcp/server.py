@@ -72,7 +72,10 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
 
         Read-only. Runs immediately, no confirmation needed.
         """
-        return _json(database.list_tables())
+        try:
+            return _json(database.list_tables())
+        except BackendError as error:
+            raise ToolError(str(error)) from error
 
     @mcp.tool()
     def describe_table(table: str) -> str:
@@ -86,6 +89,8 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
         try:
             return _json(database.describe_table(table))
         except ValueError as error:
+            raise ToolError(str(error)) from error
+        except BackendError as error:
             raise ToolError(str(error)) from error
 
     @mcp.tool()
@@ -155,7 +160,10 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
         Read-only. Shows each pending change_id, its SQL and how long it has
         left before it expires.
         """
-        return _json(database.list_pending_changes())
+        try:
+            return _json(database.list_pending_changes())
+        except BackendError as error:
+            raise ToolError(str(error)) from error
 
     return mcp
 

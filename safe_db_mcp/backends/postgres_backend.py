@@ -29,7 +29,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from ..aws.credentials import AwsSettings, DatabaseLogin, resolve_from_env
+from ..aws.credentials import AwsSettings, CredentialError, DatabaseLogin, resolve_from_env
 from ..validation import ValidatedStatement
 from .base import Backend, BackendError, PreviewChanged
 from .diffing import Snapshot, build_diff, comparable
@@ -166,7 +166,12 @@ class PostgresBackend(Backend):
         on top of the reader role's grants, not a replacement for them.
         """
         psycopg, _, dict_row = _psycopg()
-        login = self.settings.login_for(role)
+        try:
+            login = self.settings.login_for(role)
+        except CredentialError as error:
+            # Surface a credential problem as a backend problem, so every caller
+            # has one exception type to catch and still gets the real reason.
+            raise BackendError(f"Could not resolve {role} credentials: {error}") from error
         try:
             connection = psycopg.connect(
                 self.settings.conninfo(login), row_factory=dict_row, autocommit=False
