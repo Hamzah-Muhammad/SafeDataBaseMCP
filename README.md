@@ -26,6 +26,10 @@ confirm_change   ---> re-validate -> execute -> COMMIT    (once, then the id is 
 
 Everything outside that grammar is refused before it reaches SQLite: `DROP`, `ALTER`, `CREATE`, `PRAGMA`, `ATTACH`, `VACUUM`, transaction control, stacked statements, SQL comments, `load_extension`, SQLite's internal tables, and `UPDATE`/`DELETE` with no `WHERE` clause.
 
+![An agent tries DROP TABLE and an unqualified DELETE, both refused, then does the propose/confirm write flow correctly](docs/demo.gif)
+
+*A terminal recreation of a real, unedited run - same tool calls, same responses, same `change_id` - captured in [docs/verified-runs.md](docs/verified-runs.md) sections 1c and 1b.*
+
 ---
 
 ## Why an MCP server at all, when the agent could just run SQL?
