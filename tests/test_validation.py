@@ -178,7 +178,7 @@ class TestSqliteInternals:
         ],
     )
     def test_internal_tables_are_refused(self, sql: str) -> None:
-        with pytest.raises(SqlRejected, match="SQLite internal state"):
+        with pytest.raises(SqlRejected, match="internal state"):
             validate_read(sql)
 
     @pytest.mark.parametrize(
@@ -194,7 +194,7 @@ class TestSqliteInternals:
             validate_read(sql)
 
     def test_writing_to_an_internal_table_is_refused(self) -> None:
-        with pytest.raises(SqlRejected, match="SQLite internal state"):
+        with pytest.raises(SqlRejected, match="internal state"):
             validate_write("UPDATE sqlite_sequence SET seq = 0 WHERE name = 'books'", DEMO_TABLES)
 
 

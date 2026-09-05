@@ -6,13 +6,32 @@ on:
   pull_request:
 
 jobs:
-  lint-and-test:
-    runs-on: ${{ matrix.os }}
+  # Ubuntu gets a real Postgres service container, so the Postgres backend is
+  # exercised on every push rather than only on the machine it was written on.
+  lint-and-test-linux:
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.13"]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: safedb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SAFEDB_TEST_PG_DSN: >-
+        host=127.0.0.1 port=5432 dbname=safedb user=postgres
+        password=postgres sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,3 +42,24 @@ jobs:
       - run: python -m ruff check .
       - run: python -m black --check .
       - run: python -m pytest
+
+  # Windows runners cannot run service containers, so this job covers the
+  # SQLite default and everything that needs no database server. The Postgres
+  # tests skip here and only here; the Linux job above fails loudly if they are
+  # ever skipped there.
+  lint-and-test-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m ruff check .
+      - run: python -m black --check .
+      - run: python -m pytest -m "not postgres"

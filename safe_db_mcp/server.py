@@ -13,14 +13,13 @@ protocol, not by an instruction the client is asked to follow.
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from .engine import ProposalError, SafeDatabase, SqlRejected
+from .engine import BackendError, ProposalError, SafeDatabase, SqlRejected
 
 SERVER_NAME = "safe-database"
 
@@ -73,7 +72,10 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
 
         Read-only. Runs immediately, no confirmation needed.
         """
-        return _json(database.list_tables())
+        try:
+            return _json(database.list_tables())
+        except BackendError as error:
+            raise ToolError(str(error)) from error
 
     @mcp.tool()
     def describe_table(table: str) -> str:
@@ -87,6 +89,8 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
         try:
             return _json(database.describe_table(table))
         except ValueError as error:
+            raise ToolError(str(error)) from error
+        except BackendError as error:
             raise ToolError(str(error)) from error
 
     @mcp.tool()
@@ -104,8 +108,8 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
             return _json(database.run_query(sql))
         except SqlRejected as error:
             raise ToolError(f"Rejected: {error}") from error
-        except sqlite3.Error as error:
-            raise ToolError(f"SQLite refused the query: {error}") from error
+        except BackendError as error:
+            raise ToolError(str(error)) from error
 
     @mcp.tool()
     def propose_change(sql: str) -> str:
@@ -126,8 +130,8 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
             return _json(database.propose_change(sql))
         except SqlRejected as error:
             raise ToolError(f"Rejected: {error}") from error
-        except sqlite3.Error as error:
-            raise ToolError(f"SQLite refused the change, nothing was written: {error}") from error
+        except BackendError as error:
+            raise ToolError(str(error)) from error
 
     @mcp.tool()
     def confirm_change(change_id: str) -> str:
@@ -146,8 +150,8 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
             raise ToolError(f"Refused: {error}") from error
         except SqlRejected as error:
             raise ToolError(f"Rejected on re-validation: {error}") from error
-        except sqlite3.Error as error:
-            raise ToolError(f"SQLite refused the change, nothing was written: {error}") from error
+        except BackendError as error:
+            raise ToolError(str(error)) from error
 
     @mcp.tool()
     def list_pending_changes() -> str:
@@ -156,7 +160,10 @@ def build_server(database_path: Path | str | None = None, ttl_seconds: float | N
         Read-only. Shows each pending change_id, its SQL and how long it has
         left before it expires.
         """
-        return _json(database.list_pending_changes())
+        try:
+            return _json(database.list_pending_changes())
+        except BackendError as error:
+            raise ToolError(str(error)) from error
 
     return mcp
 

