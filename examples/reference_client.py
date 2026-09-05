@@ -21,6 +21,10 @@ Run it from the repository root::
 By default it works on a scratch database under the system temp directory, so
 running it never touches ``data/library.db``. Pass ``--database <path>`` to
 point it somewhere else.
+
+The server writes its own log to stderr. That is captured here and printed in
+one block at the end rather than interleaved, so the conversation reads in
+order and the server's record of what it refused stays visible.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.client import Client
-from mcp.client.stdio import StdioServerParameters
+from mcp.client.stdio import StdioServerParameters, stdio_client
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -91,94 +95,108 @@ async def run_demo(database_path: Path) -> int:
     )
 
     failures: list[str] = []
+    # errlog needs a real file handle, so the server's stderr is captured to a
+    # scratch file and replayed at the end rather than interleaved.
+    log_path = database_path.with_suffix(".server.log")
 
-    async with Client(parameters) as client:
-        heading("0. What the server offers")
-        listing = await client.list_tools()
-        for tool in listing.tools:
-            summary = (tool.description or "").strip().splitlines()[0]
-            print(f"  {tool.name:22} {summary}")
-        print(f"\n  {len(listing.tools)} tools. That is the entire surface.")
+    with log_path.open("w", encoding="utf-8") as server_log:
+        async with Client(stdio_client(parameters, errlog=server_log)) as client:
+            heading("0. What the server offers")
+            listing = await client.list_tools()
+            for tool in listing.tools:
+                summary = (tool.description or "").strip().splitlines()[0]
+                print(f"  {tool.name:22} {summary}")
+            print(f"\n  {len(listing.tools)} tools. That is the entire surface.")
 
-        # 1. A read runs immediately.
-        heading("1. Read: run immediately, no confirmation")
-        tables = result_json(await client.call_tool("list_tables", {}))
-        print("  tables: " + ", ".join(f"{t['name']} ({t['rows']} rows)" for t in tables["tables"]))
-
-        query = (
-            "SELECT m.full_name, m.status, COUNT(l.id) AS open_loans "
-            "FROM members m LEFT JOIN loans l "
-            "ON l.member_id = m.id AND l.returned_on IS NULL "
-            "GROUP BY m.id ORDER BY open_loans DESC, m.full_name LIMIT 5"
-        )
-        rows = result_json(await client.call_tool("run_query", {"sql": query}))
-        show("run_query", rows["rows"])
-
-        # 2. A write is previewed, not committed.
-        heading("2. Write, step one: propose (previewed, nothing committed)")
-        proposal = result_json(await client.call_tool("propose_change", {"sql": DEMO_WRITE}))
-        change_id = proposal["change_id"]
-        print(f"  sql            {proposal['sql']}")
-        print(f"  rows affected  {proposal['rows_affected']}")
-        print(f"  status         {proposal['status']}")
-        print(f"  change_id      {change_id} (expires in {proposal['expires_in_seconds']}s)")
-        show("preview diff", proposal["diff"])
-
-        pending = result_json(await client.call_tool("list_pending_changes", {}))
-        print(f"\n  pending changes awaiting confirmation: {pending['pending_count']}")
-
-        before = result_json(
-            await client.call_tool(
-                "run_query", {"sql": "SELECT id, full_name, status FROM members WHERE id = 4"}
+            # 1. A read runs immediately.
+            heading("1. Read: run immediately, no confirmation")
+            tables = result_json(await client.call_tool("list_tables", {}))
+            print(
+                "  tables: "
+                + ", ".join(f"{t['name']} ({t['rows']} rows)" for t in tables["tables"])
             )
-        )
-        print(f"  row on disk right now: {before['rows'][0]}")
-        if before["rows"][0]["status"] == "active":
-            failures.append("propose_change appears to have committed; it must not.")
 
-        # 3. Confirming commits it, exactly once.
-        heading("3. Write, step two: confirm (committed)")
-        committed = result_json(await client.call_tool("confirm_change", {"change_id": change_id}))
-        print(f"  status         {committed['status']}")
-        print(f"  rows affected  {committed['rows_affected']}")
-
-        after = result_json(
-            await client.call_tool(
-                "run_query", {"sql": "SELECT id, full_name, status FROM members WHERE id = 4"}
+            query = (
+                "SELECT m.full_name, m.status, COUNT(l.id) AS open_loans "
+                "FROM members m LEFT JOIN loans l "
+                "ON l.member_id = m.id AND l.returned_on IS NULL "
+                "GROUP BY m.id ORDER BY open_loans DESC, m.full_name LIMIT 5"
             )
-        )
-        print(f"  row on disk now: {after['rows'][0]}")
-        if after["rows"][0]["status"] != "active":
-            failures.append("confirm_change did not commit the write.")
+            rows = result_json(await client.call_tool("run_query", {"sql": query}))
+            show("run_query", rows["rows"])
 
-        # 4. Refusals.
-        heading("4. Refusals, enforced at the tool layer")
+            # 2. A write is previewed, not committed.
+            heading("2. Write, step one: propose (previewed, nothing committed)")
+            proposal = result_json(await client.call_tool("propose_change", {"sql": DEMO_WRITE}))
+            change_id = proposal["change_id"]
+            print(f"  sql            {proposal['sql']}")
+            print(f"  rows affected  {proposal['rows_affected']}")
+            print(f"  status         {proposal['status']}")
+            print(f"  change_id      {change_id} (expires in {proposal['expires_in_seconds']}s)")
+            show("preview diff", proposal["diff"])
 
-        unsafe = await client.call_tool("run_query", {"sql": DEMO_UNSAFE})
-        print(f"  run_query('{DEMO_UNSAFE}')")
-        print(f"    is_error: {unsafe.is_error}\n    {result_text(unsafe).strip()}")
-        if not unsafe.is_error:
-            failures.append("DROP TABLE was not refused.")
+            pending = result_json(await client.call_tool("list_pending_changes", {}))
+            print(f"\n  pending changes awaiting confirmation: {pending['pending_count']}")
 
-        stacked = await client.call_tool(
-            "run_query", {"sql": "SELECT 1; DELETE FROM loans WHERE id = 1"}
-        )
-        print("\n  run_query('SELECT 1; DELETE FROM loans WHERE id = 1')")
-        print(f"    is_error: {stacked.is_error}\n    {result_text(stacked).strip()}")
-        if not stacked.is_error:
-            failures.append("A stacked statement was not refused.")
+            before = result_json(
+                await client.call_tool(
+                    "run_query", {"sql": "SELECT id, full_name, status FROM members WHERE id = 4"}
+                )
+            )
+            print(f"  row on disk right now: {before['rows'][0]}")
+            if before["rows"][0]["status"] == "active":
+                failures.append("propose_change appears to have committed; it must not.")
 
-        replay = await client.call_tool("confirm_change", {"change_id": change_id})
-        print(f"\n  confirm_change('{change_id}') again")
-        print(f"    is_error: {replay.is_error}\n    {result_text(replay).strip()}")
-        if not replay.is_error:
-            failures.append("A spent change_id was accepted a second time.")
+            # 3. Confirming commits it, exactly once.
+            heading("3. Write, step two: confirm (committed)")
+            committed = result_json(
+                await client.call_tool("confirm_change", {"change_id": change_id})
+            )
+            print(f"  status         {committed['status']}")
+            print(f"  rows affected  {committed['rows_affected']}")
 
-        invented = await client.call_tool("confirm_change", {"change_id": "0000000000000000"})
-        print("\n  confirm_change('0000000000000000') without ever proposing")
-        print(f"    is_error: {invented.is_error}\n    {result_text(invented).strip()}")
-        if not invented.is_error:
-            failures.append("An invented change_id was accepted.")
+            after = result_json(
+                await client.call_tool(
+                    "run_query", {"sql": "SELECT id, full_name, status FROM members WHERE id = 4"}
+                )
+            )
+            print(f"  row on disk now: {after['rows'][0]}")
+            if after["rows"][0]["status"] != "active":
+                failures.append("confirm_change did not commit the write.")
+
+            # 4. Refusals.
+            heading("4. Refusals, enforced at the tool layer")
+
+            unsafe = await client.call_tool("run_query", {"sql": DEMO_UNSAFE})
+            print(f"  run_query('{DEMO_UNSAFE}')")
+            print(f"    is_error: {unsafe.is_error}\n    {result_text(unsafe).strip()}")
+            if not unsafe.is_error:
+                failures.append("DROP TABLE was not refused.")
+
+            stacked = await client.call_tool(
+                "run_query", {"sql": "SELECT 1; DELETE FROM loans WHERE id = 1"}
+            )
+            print("\n  run_query('SELECT 1; DELETE FROM loans WHERE id = 1')")
+            print(f"    is_error: {stacked.is_error}\n    {result_text(stacked).strip()}")
+            if not stacked.is_error:
+                failures.append("A stacked statement was not refused.")
+
+            replay = await client.call_tool("confirm_change", {"change_id": change_id})
+            print(f"\n  confirm_change('{change_id}') again")
+            print(f"    is_error: {replay.is_error}\n    {result_text(replay).strip()}")
+            if not replay.is_error:
+                failures.append("A spent change_id was accepted a second time.")
+
+            invented = await client.call_tool("confirm_change", {"change_id": "0000000000000000"})
+            print("\n  confirm_change('0000000000000000') without ever proposing")
+            print(f"    is_error: {invented.is_error}\n    {result_text(invented).strip()}")
+            if not invented.is_error:
+                failures.append("An invented change_id was accepted.")
+
+    heading("What the server logged to stderr")
+    logged = log_path.read_text(encoding="utf-8").strip()
+    print(logged if logged else "  (nothing)")
+    log_path.unlink(missing_ok=True)
 
     heading("Result")
     if failures:

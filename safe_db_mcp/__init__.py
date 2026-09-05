@@ -5,8 +5,8 @@ The package is layered so the safety rules can be read and tested on their own:
 * :mod:`safe_db_mcp.validation` - the allowed SQL grammar and every refusal;
 * :mod:`safe_db_mcp.proposals` - the single-use, expiring pending-change store;
 * :mod:`safe_db_mcp.database` - connections (read-only and read/write) and seeding;
-* :mod:`safe_db_mcp.engine` - the five operations as plain Python;
-* :mod:`safe_db_mcp.server` - the MCP adapter over those five operations.
+* :mod:`safe_db_mcp.engine` - the operations as plain Python;
+* :mod:`safe_db_mcp.server` - the MCP adapter over those operations.
 """
 
 from .engine import ProposalError, SafeDatabase, SqlRejected

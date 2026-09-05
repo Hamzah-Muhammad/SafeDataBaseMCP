@@ -1,7 +1,7 @@
 """The same guarantees, exercised through the MCP protocol.
 
 :mod:`tests.test_engine` proves the rules hold in plain Python. These tests
-prove nothing is lost in the adapter: the tool surface is exactly five tools,
+prove nothing is lost in the adapter: the tool surface is exactly six tools,
 errors come back as protocol errors rather than as silent successes, and a
 client that only speaks MCP still cannot commit a write without a preview.
 

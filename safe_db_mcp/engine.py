@@ -1,4 +1,4 @@
-"""The five operations, with no MCP in sight.
+"""The operations themselves, with no MCP in sight.
 
 :class:`SafeDatabase` is the whole feature set of this project expressed as
 plain Python. :mod:`safe_db_mcp.server` is a thin adapter that exposes these
@@ -33,7 +33,7 @@ from .validation import SqlRejected, validate_read, validate_write
 
 
 class SafeDatabase:
-    """A SQLite database reachable only through five validated operations."""
+    """A SQLite database reachable only through a fixed set of validated operations."""
 
     def __init__(self, path: Path | str | None = None, ttl_seconds: float | None = None) -> None:
         """Open (and seed, if needed) the database this instance serves.

@@ -1,4 +1,4 @@
-"""The five operations, and the gate between propose and confirm.
+"""The operations themselves, and the gate between propose and confirm.
 
 Where :mod:`tests.test_validation` proves a statement is refused, these tests
 prove the database on disk is unchanged when it is - and that the propose step

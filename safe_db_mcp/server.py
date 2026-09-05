@@ -1,4 +1,4 @@
-"""The MCP surface: five tools, and nothing else reachable.
+"""The MCP surface: six tools, and nothing else reachable.
 
 This module is intentionally thin. Every rule lives in
 :mod:`safe_db_mcp.engine`, :mod:`safe_db_mcp.validation` and
@@ -6,7 +6,7 @@ This module is intentionally thin. Every rule lives in
 call into a method call and an exception into a readable error string.
 
 That thinness is the design. A client connected to this server can reach the
-database in exactly five ways, and the shape of those five is fixed by the
+database in exactly six ways, and the shape of those six is fixed by the
 protocol, not by an instruction the client is asked to follow.
 """
 
@@ -25,7 +25,8 @@ from .engine import ProposalError, SafeDatabase, SqlRejected
 SERVER_NAME = "safe-database"
 
 INSTRUCTIONS = """\
-This server exposes one SQLite database through five validated tools.
+This server exposes one SQLite database through a fixed set of validated
+tools. There is no other way in.
 
 Reads (list_tables, describe_table, run_query) run immediately on a read-only
 connection. run_query accepts a single SELECT and nothing else.
@@ -47,7 +48,7 @@ def _json(payload: Any) -> str:
 
 
 def build_server(database_path: Path | str | None = None, ttl_seconds: float | None = None):
-    """Construct the MCP server and register its five tools.
+    """Construct the MCP server and register its tools.
 
     Args:
         database_path: Location of the SQLite file. Defaults to
