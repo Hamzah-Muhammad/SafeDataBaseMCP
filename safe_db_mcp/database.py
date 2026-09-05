@@ -165,9 +165,7 @@ def foreign_keys(connection: sqlite3.Connection, table: str) -> list[dict[str, o
     if table not in list_table_names(connection):
         raise ValueError(f"Unknown table '{table}'.")
     rows = connection.execute(f'PRAGMA foreign_key_list("{table}")').fetchall()
-    return [
-        {"column": row["from"], "references": f"{row['table']}.{row['to']}"} for row in rows
-    ]
+    return [{"column": row["from"], "references": f"{row['table']}.{row['to']}"} for row in rows]
 
 
 def rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, object]]:

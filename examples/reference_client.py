@@ -192,7 +192,9 @@ async def run_demo(database_path: Path) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and run the demo."""
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawTextHelpFormatter
+    )
     parser.add_argument(
         "--database",
         type=Path,
